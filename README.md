@@ -25,13 +25,14 @@ deliberate device-management controls.
 
 ## Install
 
-1. Build `dist/NoClearHijack.apk` (see *Build* below) or use a release build.
-2. Install with `adb install -r dist/NoClearHijack.apk`.
-3. Enable the module in the Xposed manager and confirm its scope contains `com.android.settings`.
-4. Force-stop Settings (or reboot) so the hook is injected.
+1. Install the latest APK from [Releases](https://github.com/doccstat/noclearhijack/releases)
+   (or build it yourself; see *Build* below).
+2. Enable the module in the Xposed manager and confirm its scope contains `com.android.settings`.
+3. Force-stop Settings (or reboot) so the hook is injected.
 
 Reinstalling a module (uninstall + install) resets the manager's enabled/scope state, so re-enable
-it and re-add the `com.android.settings` scope after a clean install.
+it and re-add the `com.android.settings` scope after a clean install. Published releases are signed
+with a permanent key, so later versions install over earlier ones normally.
 
 ## Build
 
@@ -45,10 +46,12 @@ export JAVA_HOME=/path/to/jdk
 
 `build.py` compiles the Java sources against the compile-only API stubs in `stubs/`, packages the
 libxposed entry/metadata files, and signs the result. The first build creates a development
-keystore; keep it if you want later builds to install over earlier ones. Override the signer with
-`SIGNING_KEYSTORE=/path/to/release.keystore`.
+keystore; keep it if you want later builds to install over earlier ones.
 
-The module is built against libxposed API 102 and declares `targetApiVersion=102`.
+The module is built against libxposed API 102 and declares `targetApiVersion=102`. CI builds the
+public releases with `python3 build.py --release`, which requires an existing release keystore and
+the `SIGNING_KEYSTORE`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_PASSWORD`, `SIGNING_KEY_ALIAS`, and
+`SIGNING_CERT_SHA256` environment variables and refuses to generate a key.
 
 ## Layout
 
@@ -56,6 +59,15 @@ The module is built against libxposed API 102 and declares `targetApiVersion=102
 - `stubs/` — compile-only libxposed API declarations; never packaged into the APK.
 - `META-INF/xposed/` — entry list, module properties, and scope.
 - `build.py` / `build.sh` — direct SDK build.
+- `tests/` — package metadata and release-signing guard checks.
+- `.github/workflows/` — build, signed release, and LSPosed listing distribution.
+- `SUMMARY` — one-line LSPosed listing description.
+
+## Support
+
+Report issues at the [source repository](https://github.com/doccstat/noclearhijack/issues) with
+the device model, Android version, Settings package, module version, and reproduction steps. This
+project is not affiliated with Google, Motorola, or LSPosed.
 
 ## Credits
 
