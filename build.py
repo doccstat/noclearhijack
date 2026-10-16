@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Direct SDK build for the No Clear Hijack module: no Gradle, no network, no device."""
+import argparse
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,7 +14,32 @@ ROOT = Path(__file__).resolve().parent
 ENTRY = Path("META-INF/xposed")
 
 
+def certificate_digest(value):
+    digest = value.replace(":", "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("SIGNING_CERT_SHA256 must be a 64-hex-digit certificate SHA-256 fingerprint")
+    return digest
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--release", action="store_true",
+                        help="Require an existing, explicitly configured release signing key")
+    args = parser.parse_args()
+
+    if args.release:
+        required = ("SIGNING_KEYSTORE", "SIGNING_STORE_PASSWORD", "SIGNING_KEY_PASSWORD",
+                    "SIGNING_KEY_ALIAS", "SIGNING_CERT_SHA256")
+        missing = [name for name in required if not os.environ.get(name)]
+        if missing:
+            parser.error("Release signing requires: " + ", ".join(missing))
+        if not Path(os.environ["SIGNING_KEYSTORE"]).is_file():
+            parser.error("Release keystore does not exist; refusing to generate a replacement")
+        try:
+            expected_signer = certificate_digest(os.environ["SIGNING_CERT_SHA256"])
+        except ValueError as error:
+            parser.error(str(error))
+
     windows = os.name == "nt"
     sdk = Path(
         os.environ.get(
@@ -25,7 +53,21 @@ def main():
     android = Path(os.environ.get("ANDROID_JAR", str(sdk / "platforms/android-36/android.jar")))
     build_tools = Path(os.environ.get("BUILD_TOOLS", str(sdk / "build-tools/36.0.0")))
     java_home = os.environ.get("JAVA_HOME")
-    env = dict(os.environ)
+
+    # A throwaway development signer keeps repeated `adb install -r` updates working. Override the
+    # paths/credentials for a release; --release refuses to invent a key when one is missing.
+    key = Path(
+        os.environ.get(
+            "SIGNING_KEYSTORE",
+            str(Path.home() / (".android/noclearhijack.keystore" if windows
+                               else "data/local/noclearhijack/debug.keystore")),
+        )
+    )
+    store_password = os.environ.get("SIGNING_STORE_PASSWORD", "android")
+    key_password = os.environ.get("SIGNING_KEY_PASSWORD", store_password)
+    key_alias = os.environ.get("SIGNING_KEY_ALIAS", "androiddebugkey")
+
+    env = dict(os.environ, SIGNING_STORE_PASSWORD=store_password, SIGNING_KEY_PASSWORD=key_password)
     if java_home:
         env["PATH"] = str(Path(java_home) / "bin") + os.pathsep + env.get("PATH", "")
 
@@ -51,16 +93,6 @@ def main():
         raise SystemExit("Set ANDROID_JAR to an SDK platform android.jar")
     if not build_tools.is_dir():
         raise SystemExit("Set BUILD_TOOLS to an SDK build-tools directory")
-
-    # A throwaway development signer so repeated `adb install -r` updates keep working. Override
-    # with SIGNING_KEYSTORE for a release build; back the generated file up before publishing.
-    keystore = Path(
-        os.environ.get(
-            "SIGNING_KEYSTORE",
-            str(Path.home() / (".android/noclearhijack.keystore" if windows
-                               else "data/local/noclearhijack/debug.keystore")),
-        )
-    )
 
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
@@ -89,23 +121,39 @@ def main():
             for name in ("java_init.list", "module.prop", "scope.list"):
                 apk.write(str(ROOT / ENTRY / name), "META-INF/xposed/" + name)
         run(tool("zipalign"), "-f", "4", build / "unsigned.apk", build / "aligned.apk")
-        if not keystore.exists():
-            keystore.parent.mkdir(parents=True, exist_ok=True)
+        if not key.exists():
+            if args.release:
+                raise RuntimeError("Release keystore disappeared; refusing to generate a replacement")
+            key.parent.mkdir(parents=True, exist_ok=True)
             run(
-                jtool("keytool"), "-genkeypair", "-keystore", keystore, "-storepass", "android",
-                "-keypass", "android", "-alias", "androiddebugkey", "-keyalg", "RSA",
-                "-keysize", "2048", "-validity", "10000",
+                jtool("keytool"), "-genkeypair", "-keystore", key,
+                "-storepass:env", "SIGNING_STORE_PASSWORD",
+                "-keypass:env", "SIGNING_KEY_PASSWORD", "-alias", key_alias,
+                "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
                 "-dname", "CN=No Clear Hijack Development,O=NoClearHijack,C=US",
             )
             if not windows:
-                keystore.chmod(0o600)
+                key.chmod(0o600)
         output = dist / "NoClearHijack.apk"
         run(
-            tool("apksigner"), "sign", "--ks", keystore, "--ks-pass", "pass:android",
-            "--key-pass", "pass:android", "--ks-key-alias", "androiddebugkey",
+            tool("apksigner"), "sign", "--ks", key, "--ks-pass", "env:SIGNING_STORE_PASSWORD",
+            "--key-pass", "env:SIGNING_KEY_PASSWORD", "--ks-key-alias", key_alias,
             "--out", output, build / "aligned.apk",
         )
-        run(tool("apksigner"), "verify", "--verbose", output)
+        verification = subprocess.run(
+            [str(tool("apksigner")), "verify", "--verbose", "--print-certs", str(output)],
+            check=True, cwd=ROOT, env=env, capture_output=True, text=True,
+        )
+        print(verification.stdout)
+        if args.release:
+            digests = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)",
+                                 verification.stdout)
+            if len(digests) != 1 or certificate_digest(digests[0]) != expected_signer:
+                output.unlink()
+                raise RuntimeError("APK signing certificate does not match SIGNING_CERT_SHA256")
+        digest = hashlib.sha256(output.read_bytes()).hexdigest()
+        (dist / (output.name + ".sha256")).write_text(digest + "  " + output.name + "\n",
+                                                      encoding="utf-8")
         print(output)
 
 
