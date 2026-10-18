@@ -36,38 +36,32 @@ with a permanent key, so later versions install over earlier ones normally.
 
 ## Build
 
-Requires an Android SDK (one platform plus build-tools) and a JDK 8 or newer:
-
-```shell
-export ANDROID_HOME=/path/to/android-sdk
-export JAVA_HOME=/path/to/jdk
-./build.sh
-```
-
-`build.py` compiles the Java sources against the compile-only API stubs in `stubs/`, packages the
-libxposed entry/metadata files, and signs the result. The first build creates a development
-keystore; keep it if you want later builds to install over earlier ones.
-
-The module is built against libxposed API 102 and declares `targetApiVersion=102`. CI builds the
-public releases with `python3 build.py --release`, which requires an existing release keystore and
-the `SIGNING_KEYSTORE`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_PASSWORD`, `SIGNING_KEY_ALIAS`, and
-`SIGNING_CERT_SHA256` environment variables and refuses to generate a key.
-
-## Layout
-
-- `src/` — module code.
-- `stubs/` — compile-only libxposed API declarations; never packaged into the APK.
-- `META-INF/xposed/` — entry list, module properties, and scope.
-- `build.py` / `build.sh` — direct SDK build.
-- `tests/` — package metadata and release-signing guard checks.
-- `.github/workflows/` — build, signed release, and LSPosed listing distribution.
-- `SUMMARY` — one-line LSPosed listing description.
+`./build.sh` builds with an installed Android SDK and JDK. Public releases are
+built and signed in CI.
 
 ## Support
 
 Report issues at the [source repository](https://github.com/doccstat/noclearhijack/issues) with
-the device model, Android version, Settings package, module version, and reproduction steps. This
-project is not affiliated with Google, Motorola, or LSPosed.
+the device model, Android version, Settings package, module version, and reproduction steps.
+
+## Disclaimer
+
+No Clear Hijack changes the Settings **Clear storage** behavior through an
+Xposed/LSPosed module. It requires root and is intended for personal use on
+devices you own. It is not affiliated with Google, Motorola, LSPosed, or any
+device manufacturer. Use it at your own risk: clearing app data is destructive,
+and an incompatible framework or firmware update can prevent the device from
+booting. The authors are not responsible for data loss, warranty issues, or
+problems caused by other modules or firmware.
+
+## License
+
+No Clear Hijack is licensed under the GNU General Public License, version 3 only
+(`GPL-3.0-only`). See the
+[license text](https://github.com/doccstat/noclearhijack/blob/main/LICENSE).
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
 
 ## Credits
 
